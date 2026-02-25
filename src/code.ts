@@ -61,6 +61,7 @@ async function flattenAllInPlace(precision: number): Promise<void> {
 
   for (const frame of frames) {
     try {
+      frame.fills = [];
       log.push(`Frame "${frame.name}" — ${frame.children.length} top-level children`);
 
       const groupCount = countGroups(frame);
@@ -105,6 +106,7 @@ async function runExtractionAll(opts: ExtractOptions): Promise<void> {
       figma.currentPage.appendChild(clone);
       clone.x = frame.x + frame.width + 20;
       clone.y = frame.y;
+      clone.fills = [];
       log.push(`Cloned "${frame.name}": ${clone.children.length} top-level children`);
 
       const groupCount = countGroups(clone);
