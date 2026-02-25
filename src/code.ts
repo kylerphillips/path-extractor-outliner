@@ -1,0 +1,281 @@
+import { optimize } from "svgo/lib/svgo.js";
+
+if (typeof TextDecoder === "undefined") {
+  (globalThis as any).TextDecoder = class TextDecoder {
+    decode(bytes: Uint8Array): string {
+      let out = "";
+      for (let i = 0; i < bytes.length; ) {
+        const b0 = bytes[i++];
+        if (b0 < 0x80) { out += String.fromCharCode(b0); }
+        else if ((b0 & 0xe0) === 0xc0) { const b1=bytes[i++]&0x3f; out+=String.fromCharCode(((b0&0x1f)<<6)|b1); }
+        else if ((b0 & 0xf0) === 0xe0) { const b1=bytes[i++]&0x3f,b2=bytes[i++]&0x3f; out+=String.fromCharCode(((b0&0x0f)<<12)|(b1<<6)|b2); }
+        else { const b1=bytes[i++]&0x3f,b2=bytes[i++]&0x3f,b3=bytes[i++]&0x3f; const cp=((b0&0x07)<<18)|(b1<<12)|(b2<<6)|b3,sc=cp-0x10000; out+=String.fromCharCode(0xd800+(sc>>10),0xdc00+(sc&0x3ff)); }
+      }
+      return out;
+    }
+  };
+}
+
+interface ExtractOptions {
+  outlineStrokes: boolean;
+  strokeAlignCenter: boolean;
+  strokePreserveOriginal: boolean;
+  flatten: boolean;
+  fixWinding: boolean;
+  precision: number;
+  debugSvg: boolean;
+}
+
+figma.showUI(__html__, { width: 340, height: 520, themeColors: true });
+
+figma.ui.onmessage = async (msg: { type: string; options?: ExtractOptions }) => {
+  if (msg.type === "flatten-icon") {
+    await flattenIconInPlace(msg.options?.precision ?? 3);
+  } else if (msg.type === "extract") {
+    await runExtraction(msg.options ?? defaultOptions());
+  }
+};
+
+function defaultOptions(): ExtractOptions {
+  return { outlineStrokes: true, strokeAlignCenter: true, strokePreserveOriginal: false, flatten: true, fixWinding: true, precision: 3, debugSvg: false };
+}
+
+// ── FLATTEN ICON — mutates original frame ────────────────────────────────────
+// Destructive: ungroups → outlines strokes → flattens to one vector → evenodd
+
+async function flattenIconInPlace(precision: number): Promise<void> {
+  const selection = figma.currentPage.selection;
+  if (selection.length !== 1 || selection[0].type !== "FRAME") {
+    figma.ui.postMessage({ type: "error", message: "Select exactly one frame." });
+    return;
+  }
+
+  const frame = selection[0] as FrameNode;
+  const log: string[] = [];
+
+  try {
+    log.push(`Frame "${frame.name}" — ${frame.children.length} top-level children`);
+
+    const groupCount = countGroups(frame);
+    ungroupAll(frame);
+    log.push(`Ungrouped: removed ${groupCount} group(s) → ${frame.children.length} children`);
+
+    const nodesBefore = countNodes(frame);
+    outlineStrokesDeep(frame, true, false);
+    log.push(`Outlined strokes: ${nodesBefore} → ${countNodes(frame)} nodes`);
+
+    flattenToOne(frame);
+    log.push(`Flattened to ${frame.children.length} node(s)`);
+
+    setEvenOddWinding(frame);
+    log.push(`Set fill-rule to evenodd`);
+
+    figma.ui.postMessage({ type: "flatten-done", name: frame.name, log: log.join("\n") });
+  } catch (err) {
+    figma.ui.postMessage({
+      type: "error",
+      message: err instanceof Error ? err.message : String(err),
+      log: log.join("\n"),
+    });
+  }
+}
+
+// ── EXTRACT — works on a clone, returns path data ────────────────────────────
+
+async function runExtraction(opts: ExtractOptions): Promise<void> {
+  const selection = figma.currentPage.selection;
+  if (selection.length !== 1 || selection[0].type !== "FRAME") {
+    figma.ui.postMessage({ type: "error", message: "Select exactly one frame." });
+    return;
+  }
+
+  const frame = selection[0] as FrameNode;
+  let clone: FrameNode | undefined;
+  const log: string[] = [];
+
+  try {
+    clone = frame.clone();
+    figma.currentPage.appendChild(clone);
+    clone.x = frame.x + frame.width + 20;
+    clone.y = frame.y;
+    log.push(`Cloned "${frame.name}": ${clone.children.length} top-level children`);
+
+    const groupCount = countGroups(clone);
+    ungroupAll(clone);
+    log.push(`Ungrouped: removed ${groupCount} group(s) → ${clone.children.length} children`);
+
+    if (opts.outlineStrokes) {
+      const before = countNodes(clone);
+      outlineStrokesDeep(clone, opts.strokeAlignCenter, opts.strokePreserveOriginal);
+      log.push(`Outlined strokes: ${before} → ${countNodes(clone)} nodes`);
+    }
+
+    if (opts.flatten) {
+      flattenToOne(clone);
+      log.push(`Flattened to ${clone.children.length} child(ren)`);
+    }
+
+    if (opts.fixWinding) {
+      setEvenOddWinding(clone);
+      log.push(`Set fill-rule to evenodd`);
+    }
+
+    const svgBytes = await clone.exportAsync({ format: "SVG" });
+    const svgString = new TextDecoder().decode(svgBytes);
+    log.push(`Exported SVG: ${svgString.length} chars`);
+
+    if (opts.debugSvg) {
+      figma.ui.postMessage({ type: "debug-svg", svg: svgString });
+    }
+
+    const result = optimize(svgString, {
+      plugins: [{ name: "preset-default", params: { overrides: {
+        cleanupNumericValues: { floatPrecision: opts.precision },
+        convertPathData:      { floatPrecision: opts.precision },
+      }}}],
+    });
+
+    const { d: optimizedPath, fillRule } = extractPathData(result.data);
+    const fallback = extractPathData(svgString);
+    const pathData = optimizedPath || fallback.d;
+    const finalFillRule = optimizedPath ? fillRule : fallback.fillRule;
+
+    const subPathCount = pathData ? pathData.split(/(?=[Mm])/).filter(Boolean).length : 0;
+    log.push(`Paths: ${subPathCount} sub-path(s), fill-rule: ${finalFillRule}`);
+
+    if (!pathData) throw new Error(`No path data found.\n\nRaw SVG:\n${svgString.slice(0, 600)}`);
+
+    figma.ui.postMessage({ type: "ready", pathData, fillRule: finalFillRule, log: log.join("\n") });
+
+  } catch (err) {
+    figma.ui.postMessage({
+      type: "error",
+      message: err instanceof Error ? err.message : String(err),
+      log: log.join("\n"),
+    });
+  } finally {
+    clone?.remove();
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function countNodes(node: BaseNode): number {
+  let n = 1;
+  if ("children" in node) for (const c of (node as ChildrenMixin).children) n += countNodes(c);
+  return n;
+}
+
+function countGroups(node: BaseNode): number {
+  let n = 0;
+  if ("children" in node) {
+    for (const c of (node as ChildrenMixin).children) {
+      if (c.type === "GROUP") n++;
+      n += countGroups(c);
+    }
+  }
+  return n;
+}
+
+// ── Ungroup all groups recursively ────────────────────────────────────────────
+// Finds the deepest group first (depth-first), moves its children to its
+// parent, removes the empty group, and repeats until no groups remain.
+
+function ungroupAll(frame: FrameNode): void {
+  let safety = 500;
+  while (safety-- > 0) {
+    const group = findFirstGroup(frame);
+    if (!group) break;
+    const parent = group.parent as ChildrenMixin;
+    for (const kid of [...group.children] as SceneNode[]) {
+      parent.appendChild(kid);
+    }
+    group.remove();
+  }
+}
+
+function findFirstGroup(node: BaseNode): GroupNode | null {
+  if ("children" in node) {
+    for (const child of (node as ChildrenMixin).children) {
+      if (child.type === "GROUP") return child as GroupNode;
+      const nested = findFirstGroup(child);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+// ── Outline strokes (deep) ────────────────────────────────────────────────────
+// outlineStroke() can internally consume/replace stroke-only nodes, so we must
+// check the node still exists before touching it after the call.
+
+function nodeExists(node: SceneNode): boolean {
+  try { return node.parent !== null && node.parent !== undefined; } catch { return false; }
+}
+
+function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, preserveOrig: boolean): void {
+  for (const child of [...container.children] as SceneNode[]) {
+    if ("children" in child) {
+      try { outlineStrokesDeep(child as ChildrenMixin, alignCenter, preserveOrig); } catch (_) {}
+    }
+    if (!("outlineStroke" in child)) continue;
+    try {
+      const node = child as SceneNode & GeometryMixin & { strokeAlign: StrokeAlign };
+      if (!node.strokes || node.strokes.length === 0) continue;
+      const hasFills = Array.isArray(node.fills) && node.fills.length > 0;
+      if (alignCenter) { try { node.strokeAlign = "CENTER"; } catch (_) {} }
+      node.outlineStroke();
+      if (!preserveOrig && nodeExists(node)) {
+        if (hasFills) { try { node.strokes = []; } catch (_) {} }
+        else { try { node.remove(); } catch (_) {} }
+      }
+    } catch (_) {}
+  }
+}
+
+// ── Flatten all children into a single vector ─────────────────────────────────
+
+function flattenToOne(frame: FrameNode): void {
+  const all = [...frame.children] as SceneNode[];
+  if (all.length === 0) return;
+  if (all.length > 1) {
+    figma.flatten(all, frame);
+  } else if (all[0].type !== "VECTOR") {
+    figma.flatten(all, frame);
+  }
+}
+
+// ── Set fill-rule to evenodd ──────────────────────────────────────────────────
+// Uses evenodd winding so compound paths render correctly without needing
+// to reverse any sub-path directions (which would destroy curve data).
+
+function setEvenOddWinding(frame: FrameNode): void {
+  for (const child of frame.children) {
+    if (child.type !== "VECTOR") continue;
+    const vec = child as VectorNode;
+    try {
+      vec.vectorPaths = vec.vectorPaths.map(p => ({
+        data: p.data,
+        windingRule: "EVENODD" as WindingRule,
+      }));
+    } catch (_) {}
+  }
+}
+
+// ── Path extraction ───────────────────────────────────────────────────────────
+
+function extractPathData(svg: string): { d: string; fillRule: string } {
+  const paths: string[] = [];
+  let fillRule = "nonzero";
+  const pathRe = /<path\b[^>]*\/?>/g;
+  const dRe    = /\bd="([^"]*)"/;
+  const frRe   = /\bfill-rule="([^"]*)"/;
+  let m: RegExpExecArray | null;
+  while ((m = pathRe.exec(svg)) !== null) {
+    const fr = frRe.exec(m[0]);
+    if (fr) fillRule = fr[1];
+    const d = dRe.exec(m[0]);
+    if (d && d[1].trim()) paths.push(d[1].trim());
+  }
+  return { d: paths.join(" "), fillRule };
+}

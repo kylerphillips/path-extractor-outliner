@@ -1,0 +1,283 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAACTklEQVR4nMWXz2sTQRTH56L+C7PZeU8KOcXOVFmsXlREsHgoVGwPQSTQg55UtBd/gKiHFsW0qQmKhyYV70IPnrReBY+aXkVPHsVWaJtEnsxO3CYmmybuznbg3Yb5fGe+b3fmy9g/QwgpAeQioqwiyl+IiqKVXkOvpQpCqGEWNtLp9AFE+QxR/Y4ODRXTAFClTCazvwMOIN/bA7cXgFxtE4EonycF3xGhioHndo+9lx0jh5hpuKThQc1rAWs2IWLsml8hp/CZIaoNa/BzM8SXtoiXt0mM3+rWB+ssFtjBEcLRScLjWRKnpsm99JSchx+JL9d3SovochIsMnzII3GxQDz/xYe0Qf1qWBKQPkZurkRO6Ts5fyGVOvH5r5S68orExF3/JHg53IL/FiBOXyZn4VuwS2euSm6uSOLktLGjde7Zq36FrcUG83mK3OuviVdqBjz7ieBELpKFrO/Jo1PkzFYNuLxJbvYJ4dCRyA3M+p3ozrwh/rJOfGmT4MKDyOCBBAj9PTd3LsbvdPhsVQCoMXJe/CC+XCORfRwbuG8BqZsrZvf3P8QO31WAODpJvLJtfPcmkheQur3q7z51Y8UKvKcAcf6e2X15i2D4TLIChO765n899WjNGryrAH1hGHjNfPeV7pdIAgLqPW+x2AQAqPVBHxJxFYD8Gfok2+0Wi6ek/yQr2IX0FJBnOi7pJ/IewBuIhzN+NtBxKWkBOg4EyUjHJAD1LkEBbz3P29eWD5siinbt0GlILnbAW4eOSzqx6A6NKTNsmLVkPvC8ZfwBoCK+53X2t10AAAAASUVORK5CYII=" />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 12px;
+        background: var(--figma-color-bg, #fff);
+        color: var(--figma-color-text, #333);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      button {
+        width: 100%;
+        padding: 8px 12px;
+        background: var(--figma-color-bg-brand, #18a0fb);
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      button:hover:not(:disabled) { opacity: 0.88; }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      #status {
+        font-size: 11px;
+        min-height: 14px;
+        line-height: 1.4;
+        word-break: break-word;
+      }
+      #status.success { color: #1a7f37; font-weight: 600; }
+      #status.error   { color: #cf222e; }
+      textarea {
+        width: 100%;
+        height: 120px;
+        padding: 8px;
+        font-family: "Menlo", "Monaco", "Courier New", monospace;
+        font-size: 10px;
+        line-height: 1.4;
+        border: 1px solid var(--figma-color-border, #e0e0e0);
+        border-radius: 6px;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        color: var(--figma-color-text, #333);
+        resize: vertical;
+        outline: none;
+      }
+      textarea:focus { border-color: var(--figma-color-bg-brand, #18a0fb); }
+      #copy {
+        background: var(--figma-color-bg-secondary, #f0f0f0);
+        color: var(--figma-color-text, #333);
+        border: 1px solid var(--figma-color-border, #ddd);
+      }
+      #copy:hover:not(:disabled) { background: var(--figma-color-bg-hover, #e8e8e8); opacity: 1; }
+
+      /* ── debug panel ── */
+      details {
+        border: 1px solid var(--figma-color-border, #e0e0e0);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      summary {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        user-select: none;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        color: var(--figma-color-text-secondary, #666);
+        list-style: none;
+      }
+      summary::-webkit-details-marker { display: none; }
+      summary .arrow { display: inline-block; transition: transform 0.15s; font-size: 9px; opacity: 0.6; }
+      details[open] summary .arrow { transform: rotate(90deg); }
+      .debug-body {
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        border-top: 1px solid var(--figma-color-border, #e0e0e0);
+      }
+      .opt { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+      .opt input[type="checkbox"] {
+        width: 13px; height: 13px; margin-top: 1px; flex-shrink: 0;
+        cursor: pointer; accent-color: var(--figma-color-bg-brand, #18a0fb);
+      }
+      .opt-text { display: flex; flex-direction: column; gap: 2px; }
+      .opt-label { font-size: 11px; font-weight: 500; }
+      .opt-desc  { font-size: 10px; color: var(--figma-color-text-secondary, #888); line-height: 1.4; }
+      .divider { height: 1px; background: var(--figma-color-border, #e8e8e8); margin: 2px 0; }
+      .sub-opts { display: flex; flex-direction: column; gap: 6px; padding-left: 21px; }
+      .sub-opts.hidden { display: none; }
+      .precision-row { display: flex; align-items: center; gap: 8px; }
+      .precision-row input[type="number"] {
+        width: 44px; padding: 3px 5px; font-size: 11px;
+        border: 1px solid var(--figma-color-border, #ddd);
+        border-radius: 4px;
+        background: var(--figma-color-bg, #fff);
+        color: var(--figma-color-text, #333);
+      }
+
+      /* ── header / description ── */
+      .plugin-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--figma-color-border, #e0e0e0);
+      }
+      .plugin-icon {
+        width: 24px;
+        height: 24px;
+        border-radius: 5px;
+        flex-shrink: 0;
+      }
+      .plugin-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--figma-color-text, #333);
+        line-height: 1;
+      }
+      .plugin-version {
+        font-size: 10px;
+        font-weight: 500;
+        color: var(--figma-color-text-secondary, #888);
+        margin-left: 2px;
+      }
+      .plugin-desc {
+        font-size: 10px;
+        color: var(--figma-color-text-secondary, #777);
+        line-height: 1.5;
+        padding: 6px 8px;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        border-radius: 5px;
+        border-left: 2px solid var(--figma-color-bg-brand, #18a0fb);
+      }
+
+      /* ── debug log ── */
+      #debug-log {
+        width: 100%;
+        max-height: 120px;
+        overflow-y: auto;
+        font-family: "Menlo","Monaco","Courier New",monospace;
+        font-size: 9px;
+        line-height: 1.4;
+        padding: 6px 8px;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        color: var(--figma-color-text-secondary, #777);
+        border: 1px solid var(--figma-color-border, #e0e0e0);
+        border-radius: 5px;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      .debug-toggle {
+        font-size: 10px;
+        color: var(--figma-color-text-secondary, #888);
+        cursor: pointer;
+        user-select: none;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="plugin-header">
+      <img class="plugin-icon" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAACTklEQVR4nMWXz2sTQRTH56L+C7PZeU8KOcXOVFmsXlREsHgoVGwPQSTQg55UtBd/gKiHFsW0qQmKhyYV70IPnrReBY+aXkVPHsVWaJtEnsxO3CYmmybuznbg3Yb5fGe+b3fmy9g/QwgpAeQioqwiyl+IiqKVXkOvpQpCqGEWNtLp9AFE+QxR/Y4ODRXTAFClTCazvwMOIN/bA7cXgFxtE4EonycF3xGhioHndo+9lx0jh5hpuKThQc1rAWs2IWLsml8hp/CZIaoNa/BzM8SXtoiXt0mM3+rWB+ssFtjBEcLRScLjWRKnpsm99JSchx+JL9d3SovochIsMnzII3GxQDz/xYe0Qf1qWBKQPkZurkRO6Ts5fyGVOvH5r5S68orExF3/JHg53IL/FiBOXyZn4VuwS2euSm6uSOLktLGjde7Zq36FrcUG83mK3OuviVdqBjz7ieBELpKFrO/Jo1PkzFYNuLxJbvYJ4dCRyA3M+p3ozrwh/rJOfGmT4MKDyOCBBAj9PTd3LsbvdPhsVQCoMXJe/CC+XCORfRwbuG8BqZsrZvf3P8QO31WAODpJvLJtfPcmkheQur3q7z51Y8UKvKcAcf6e2X15i2D4TLIChO765n899WjNGryrAH1hGHjNfPeV7pdIAgLqPW+x2AQAqPVBHxJxFYD8Gfok2+0Wi6ek/yQr2IX0FJBnOi7pJ/IewBuIhzN+NtBxKWkBOg4EyUjHJAD1LkEBbz3P29eWD5siinbt0GlILnbAW4eOSzqx6A6NKTNsmLVkPvC8ZfwBoCK+53X2t10AAAAASUVORK5CYII=" alt="" />
+      <span class="plugin-title">Path Extractor<span class="plugin-version"> v5</span></span>
+    </div>
+    <p class="plugin-desc">
+      Selects a frame, ungroups all nested layers, outlines strokes into fills,
+      flattens everything into a single unified vector, then extracts the raw
+      SVG <code>d</code> path string — ready to paste into code or a motion tool.
+      Handles grouped vectors, stroked paths, and compound shapes. Optionally
+      sets evenodd fill-rule and runs SVGO precision cleanup.
+    </p>
+    <div style="display:flex;gap:8px;">
+      <button id="flatten-icon" style="flex:1.4;">⬡ Flatten Icon</button>
+      <button id="extract" style="flex:1;background:var(--figma-color-bg-secondary,#f0f0f0);color:var(--figma-color-text,#333);border:1px solid var(--figma-color-border,#ddd);font-weight:500;">Extract Path Data</button>
+    </div>
+    <p id="btn-hint" style="font-size:10px;color:var(--figma-color-text-secondary,#888);line-height:1.4;margin-top:-4px;">
+      <strong>Flatten Icon</strong> — <em>destructive</em>: ungroups, outlines strokes, flattens to one vector, sets evenodd fill-rule.<br/>
+      <strong>Extract Path Data</strong> — extracts SVG path data using options below (non-destructive clone).
+    </p>
+    <div id="status"></div>
+
+    <details id="debug-panel">
+      <summary><span class="arrow">▶</span> ⚙ Processing Options</summary>
+      <div class="debug-body">
+
+        <label class="opt">
+          <input type="checkbox" id="opt-outline-strokes" checked />
+          <span class="opt-text">
+            <span class="opt-label">Outline strokes</span>
+            <span class="opt-desc">Expand strokes into filled shapes before flattening. Needed for frames containing stroked paths.</span>
+          </span>
+        </label>
+
+        <div class="sub-opts" id="stroke-sub-opts">
+          <label class="opt">
+            <input type="checkbox" id="opt-stroke-align-center" checked />
+            <span class="opt-text">
+              <span class="opt-label">Force center stroke alignment</span>
+              <span class="opt-desc">Set strokeAlign → CENTER before outlining to avoid geometry bleed from inside/outside aligned strokes.</span>
+            </span>
+          </label>
+          <label class="opt">
+            <input type="checkbox" id="opt-stroke-preserve-original" />
+            <span class="opt-text">
+              <span class="opt-label">Keep original node after outline</span>
+              <span class="opt-desc">Keep the stroked node alongside the new outlined shape (useful for debugging the outline step).</span>
+            </span>
+          </label>
+        </div>
+
+        <div class="divider"></div>
+
+        <label class="opt">
+          <input type="checkbox" id="opt-flatten" checked />
+          <span class="opt-text">
+            <span class="opt-label">Flatten all shapes</span>
+            <span class="opt-desc">Union all children into a single vector before export. Disable to get per-shape path data.</span>
+          </span>
+        </label>
+
+        <div class="divider"></div>
+
+        <label class="opt">
+          <input type="checkbox" id="opt-fix-winding" checked />
+          <span class="opt-text">
+            <span class="opt-label">Use evenodd fill-rule</span>
+            <span class="opt-desc">Set fill-rule to evenodd on the flattened vector — ensures compound paths with holes render correctly without reversing path directions.</span>
+          </span>
+        </label>
+
+        <div class="divider"></div>
+
+        <div class="precision-row">
+          <span class="opt-label" style="white-space:nowrap;">Float precision</span>
+          <input id="opt-precision" type="number" min="1" max="6" value="3" />
+          <span class="opt-desc">Decimal places for SVGO path output (1–6).</span>
+        </div>
+
+        <div class="divider"></div>
+
+        <label class="opt">
+          <input type="checkbox" id="opt-debug-svg" />
+          <span class="opt-text">
+            <span class="opt-label">Show raw SVG output</span>
+            <span class="opt-desc">Display the SVG Figma exported before SVGO and path extraction — useful for debugging empty output.</span>
+          </span>
+        </label>
+
+      </div>
+    </details>
+
+    <details id="debug-svg-panel" style="display:none;">
+      <summary><span class="arrow">▶</span> 🔍 Raw SVG from Figma</summary>
+      <div class="debug-body">
+        <textarea id="debug-svg-output" readonly style="height:80px;font-size:9px;"></textarea>
+      </div>
+    </details>
+
+    <textarea id="output" readonly placeholder="Path data will appear here…"></textarea>
+    <button id="copy" disabled>Copy to Clipboard</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:10px;color:var(--figma-color-text-secondary,#aaa);font-weight:500;">v5</span>
+      <span class="debug-toggle" id="debug-toggle">show debug log</span>
+    </div>
+    <div id="debug-section" style="display:none;">
+      <pre id="debug-log">No log entries yet — run an operation to see output here.</pre>
+    </div>
+    <!-- __BUNDLE__ -->
+  </body>
+</html>

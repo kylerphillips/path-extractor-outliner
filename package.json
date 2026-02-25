@@ -1,0 +1,18 @@
+{
+  "name": "figma-path-extractor",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node --watch build.mjs"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.93.0",
+    "esbuild": "^0.20.0",
+    "prettier": "^3.8.1",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "svgo": "^3.2.0"
+  }
+}
