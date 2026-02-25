@@ -1,4 +1,5 @@
 import { optimize } from "svgo/lib/svgo.js";
+import * as cheerio from "cheerio";
 
 if (typeof TextDecoder === "undefined") {
   (globalThis as any).TextDecoder = class TextDecoder {
@@ -315,20 +316,25 @@ function flattenToOne(frame: FrameNode): void {
 // ── Path extraction ───────────────────────────────────────────────────────────
 
 function extractPathData(svg: string): { d: string; fillRule: string } {
-  // Strip <defs> and <clipPath> blocks so clip rectangles aren't extracted as paths
-  const cleaned = svg.replace(/<defs[\s\S]*?<\/defs>/g, "").replace(/<clipPath[\s\S]*?<\/clipPath>/g, "");
+  const $ = cheerio.load(svg, { xml: true });
   const paths: string[] = [];
   let fillRule = "nonzero";
-  const pathRe = /<path\b[^>]*\/?>/g;
-  const dRe    = /\bd="([^"]*)"/;
-  const frRe   = /\bfill-rule="([^"]*)"/;
-  let m: RegExpExecArray | null;
-  while ((m = pathRe.exec(cleaned)) !== null) {
-    const fr = frRe.exec(m[0]);
-    if (fr) fillRule = fr[1];
-    const d = dRe.exec(m[0]);
-    if (d && d[1].trim()) paths.push(d[1].trim());
-  }
-  const joined = paths.map(p => p.replace(/^m/, "M")).join(" ");
+
+  // Select only <path> elements outside <defs> and <clipPath>
+  $("path").not("defs path, clipPath path").each((_, el) => {
+    const fr = $(el).attr("fill-rule");
+    if (fr) fillRule = fr;
+    const d = $(el).attr("d")?.trim();
+    if (d) paths.push(d);
+  });
+
+  // When joining separate <path> elements, each starts fresh at (0,0).
+  // A leading lowercase m is relative to origin — equivalent to absolute M.
+  // But after M, implicit coords become absolute L instead of relative l,
+  // so we must insert an explicit 'l' after the moveto coordinates.
+  const movetoRe = /^m([-+]?(?:\d+\.?\d*|\.\d+)[,\s]*[-+]?(?:\d+\.?\d*|\.\d+))(?=[,\s]*[-+.\d])/;
+  const joined = paths
+    .map(p => p.replace(movetoRe, "M$1l").replace(/^m/, "M"))
+    .join(" ");
   return { d: joined, fillRule };
 }

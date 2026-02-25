@@ -16,7 +16,8 @@ await build({
   outfile: 'dist/code.js',
   platform: 'browser',
   target: 'es2017',
-  define: { 'process.env.NODE_ENV': '"production"' },
+  define: { 'process.env.NODE_ENV': '"production"', 'global': 'globalThis' },
+  inject: ['src/buffer-shim.js'],
 });
 
 // Build the UI bundle (no SVGO — just clipboard logic)
