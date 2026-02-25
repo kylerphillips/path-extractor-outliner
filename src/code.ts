@@ -1,21 +1,6 @@
 import { optimize } from "svgo/lib/svgo.js";
 import * as cheerio from "cheerio";
 
-if (typeof TextDecoder === "undefined") {
-  (globalThis as any).TextDecoder = class TextDecoder {
-    decode(bytes: Uint8Array): string {
-      let out = "";
-      for (let i = 0; i < bytes.length; ) {
-        const b0 = bytes[i++];
-        if (b0 < 0x80) { out += String.fromCharCode(b0); }
-        else if ((b0 & 0xe0) === 0xc0) { const b1=bytes[i++]&0x3f; out+=String.fromCharCode(((b0&0x1f)<<6)|b1); }
-        else if ((b0 & 0xf0) === 0xe0) { const b1=bytes[i++]&0x3f,b2=bytes[i++]&0x3f; out+=String.fromCharCode(((b0&0x0f)<<12)|(b1<<6)|b2); }
-        else { const b1=bytes[i++]&0x3f,b2=bytes[i++]&0x3f,b3=bytes[i++]&0x3f; const cp=((b0&0x07)<<18)|(b1<<12)|(b2<<6)|b3,sc=cp-0x10000; out+=String.fromCharCode(0xd800+(sc>>10),0xdc00+(sc&0x3ff)); }
-      }
-      return out;
-    }
-  };
-}
 
 interface ExtractOptions {
   outlineStrokes: boolean;
@@ -124,8 +109,7 @@ async function runExtractionAll(opts: ExtractOptions): Promise<void> {
         log.push(`Flattened to ${clone.children.length} child(ren)`);
       }
 
-      const svgBytes = await clone.exportAsync({ format: "SVG" });
-      const svgString = new TextDecoder().decode(svgBytes);
+      const svgString = await clone.exportAsync({ format: "SVG_STRING" });
       log.push(`Exported SVG: ${svgString.length} chars`);
 
       if (opts.debugSvg) {
