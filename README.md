@@ -35,11 +35,16 @@ This plugin uses the **manifest import** method for local development:
 
 > **Note:** After making code changes, run `node build.mjs` again. Close and reopen the plugin in Figma to pick up the new build — you do not need to re-import the manifest.
 
+## How to Flatten an Icon
+
+<video src="assets/flatten-demo.mp4" controls width="600"></video>
+
 ## Usage
 
-1. Select a single **Frame** on the canvas.
+1. Select one or more **Frames** on the canvas.
 2. Click **Flatten Icon** to destructively merge everything into one vector, or **Extract Path Data** to get the SVG path without modifying the original.
-3. The extracted path string appears in the text area — click **Copy to Clipboard** to grab it.
+3. When multiple frames are selected, **Extract Path Data** outputs a Record object with kebab-case frame names as keys.
+4. The extracted path string appears in the text area — click **Copy to Clipboard** to grab it.
 
 ## Project Structure
 

@@ -29,9 +29,9 @@ figma.showUI(__html__, { width: 340, height: 520, themeColors: true });
 
 figma.ui.onmessage = async (msg: { type: string; options?: ExtractOptions }) => {
   if (msg.type === "flatten-icon") {
-    await flattenIconInPlace(msg.options?.precision ?? 3);
+    await flattenAllInPlace(msg.options?.precision ?? 3);
   } else if (msg.type === "extract") {
-    await runExtraction(msg.options ?? defaultOptions());
+    await runExtractionAll(msg.options ?? defaultOptions());
   }
 };
 
@@ -39,134 +39,134 @@ function defaultOptions(): ExtractOptions {
   return { outlineStrokes: true, strokeAlignCenter: true, strokePreserveOriginal: false, flatten: true, precision: 3, debugSvg: false };
 }
 
-// ── FLATTEN ICON — mutates original frame ────────────────────────────────────
+// ── FLATTEN ICON — mutates original frame(s) ─────────────────────────────────
 
-async function flattenIconInPlace(precision: number): Promise<void> {
-  const selection = figma.currentPage.selection;
-  if (selection.length !== 1 || selection[0].type !== "FRAME") {
-    figma.ui.postMessage({ type: "error", message: "Select exactly one frame." });
+async function flattenAllInPlace(precision: number): Promise<void> {
+  const frames = figma.currentPage.selection.filter(n => n.type === "FRAME") as FrameNode[];
+  if (frames.length === 0) {
+    figma.ui.postMessage({ type: "error", message: "Select at least one frame." });
     return;
   }
 
-  const frame = selection[0] as FrameNode;
   const log: string[] = [];
+  const names: string[] = [];
 
-  try {
-    log.push(`Frame "${frame.name}" — ${frame.children.length} top-level children`);
+  for (const frame of frames) {
+    try {
+      log.push(`Frame "${frame.name}" — ${frame.children.length} top-level children`);
 
-    const groupCount = countGroups(frame);
-    ungroupAll(frame);
-    log.push(`Ungrouped: removed ${groupCount} group(s) → ${frame.children.length} children`);
+      const groupCount = countGroups(frame);
+      ungroupAll(frame);
+      log.push(`Ungrouped: removed ${groupCount} group(s) → ${frame.children.length} children`);
 
-    const origIds = outlineStrokesDeep(frame, true, false, log);
+      const origIds = outlineStrokesDeep(frame, true, false, log);
+      removeOriginals(frame, origIds, log);
 
-    // Diagnostic: show all children after outlining
-    log.push(`Post-outline children (${frame.children.length}):`);
-    for (const c of [...frame.children] as SceneNode[]) {
-      const n = c as any;
-      const fc = Array.isArray(n.fills) ? n.fills.length : "?";
-      const sc = Array.isArray(n.strokes) ? n.strokes.length : "?";
-      log.push(`  [${c.type}] "${c.name}" id=${c.id} fills=${fc} strokes=${sc}`);
+      flattenToOne(frame);
+      log.push(`Flattened to ${frame.children.length} node(s)`);
+      names.push(frame.name);
+    } catch (err) {
+      log.push(`✗ Error on "${frame.name}": ${err instanceof Error ? err.message : String(err)}`);
     }
-
-    // Remove only the originals that outlineStroke() created siblings for
-    for (const id of origIds) {
-      for (const c of [...frame.children] as SceneNode[]) {
-        if (c.id === id) {
-          log.push(`Removing original: [${c.type}] "${c.name}" id=${id}`);
-          try { c.remove(); } catch (_) {}
-          break;
-        }
-      }
-    }
-    log.push(`After removal: ${frame.children.length} children`);
-
-    flattenToOne(frame);
-    log.push(`Flattened to ${frame.children.length} node(s)`);
-
-    figma.ui.postMessage({ type: "flatten-done", name: frame.name, log: log.join("\n") });
-  } catch (err) {
-    figma.ui.postMessage({
-      type: "error",
-      message: err instanceof Error ? err.message : String(err),
-      log: log.join("\n"),
-    });
   }
+
+  figma.ui.postMessage({
+    type: "flatten-done",
+    name: names.join(", "),
+    count: frames.length,
+    log: log.join("\n"),
+  });
 }
 
-// ── EXTRACT — works on a clone, returns path data ────────────────────────────
+// ── EXTRACT — works on clones, returns path data ─────────────────────────────
 
-async function runExtraction(opts: ExtractOptions): Promise<void> {
-  const selection = figma.currentPage.selection;
-  if (selection.length !== 1 || selection[0].type !== "FRAME") {
-    figma.ui.postMessage({ type: "error", message: "Select exactly one frame." });
+async function runExtractionAll(opts: ExtractOptions): Promise<void> {
+  const frames = figma.currentPage.selection.filter(n => n.type === "FRAME") as FrameNode[];
+  if (frames.length === 0) {
+    figma.ui.postMessage({ type: "error", message: "Select at least one frame." });
     return;
   }
 
-  const frame = selection[0] as FrameNode;
-  let clone: FrameNode | undefined;
   const log: string[] = [];
+  const results: { name: string; pathData: string; fillRule: string }[] = [];
 
-  try {
-    clone = frame.clone();
-    figma.currentPage.appendChild(clone);
-    clone.x = frame.x + frame.width + 20;
-    clone.y = frame.y;
-    log.push(`Cloned "${frame.name}": ${clone.children.length} top-level children`);
+  for (const frame of frames) {
+    let clone: FrameNode | undefined;
+    try {
+      clone = frame.clone();
+      figma.currentPage.appendChild(clone);
+      clone.x = frame.x + frame.width + 20;
+      clone.y = frame.y;
+      log.push(`Cloned "${frame.name}": ${clone.children.length} top-level children`);
 
-    const groupCount = countGroups(clone);
-    ungroupAll(clone);
-    log.push(`Ungrouped: removed ${groupCount} group(s) → ${clone.children.length} children`);
+      const groupCount = countGroups(clone);
+      ungroupAll(clone);
+      log.push(`Ungrouped: removed ${groupCount} group(s) → ${clone.children.length} children`);
 
-    if (opts.outlineStrokes) {
-      const origIds = outlineStrokesDeep(clone, opts.strokeAlignCenter, opts.strokePreserveOriginal, log);
-      for (const id of origIds) {
-        for (const c of [...clone.children] as SceneNode[]) {
-          if (c.id === id) { try { c.remove(); } catch (_) {} break; }
-        }
+      if (opts.outlineStrokes) {
+        const origIds = outlineStrokesDeep(clone, opts.strokeAlignCenter, opts.strokePreserveOriginal, log);
+        removeOriginals(clone, origIds, log);
+      }
+
+      if (opts.flatten) {
+        flattenToOne(clone);
+        log.push(`Flattened to ${clone.children.length} child(ren)`);
+      }
+
+      const svgBytes = await clone.exportAsync({ format: "SVG" });
+      const svgString = new TextDecoder().decode(svgBytes);
+      log.push(`Exported SVG: ${svgString.length} chars`);
+
+      if (opts.debugSvg) {
+        figma.ui.postMessage({ type: "debug-svg", svg: svgString });
+      }
+
+      const optimized = optimize(svgString, {
+        plugins: [{ name: "preset-default", params: { overrides: {
+          cleanupNumericValues: { floatPrecision: opts.precision },
+          convertPathData:      { floatPrecision: opts.precision },
+        }}}],
+      });
+
+      const { d: optimizedPath, fillRule } = extractPathData(optimized.data);
+      const fallback = extractPathData(svgString);
+      const pathData = optimizedPath || fallback.d;
+      const finalFillRule = optimizedPath ? fillRule : fallback.fillRule;
+
+      const subPathCount = pathData ? pathData.split(/(?=[Mm])/).filter(Boolean).length : 0;
+      log.push(`Paths: ${subPathCount} sub-path(s), fill-rule: ${finalFillRule}`);
+
+      if (!pathData) {
+        log.push(`✗ No path data for "${frame.name}". Raw SVG: ${svgString.slice(0, 300)}`);
+      } else {
+        results.push({ name: frame.name, pathData, fillRule: finalFillRule });
+      }
+    } catch (err) {
+      log.push(`✗ Error on "${frame.name}": ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      clone?.remove();
+    }
+  }
+
+  if (results.length === 0) {
+    figma.ui.postMessage({ type: "error", message: "No path data extracted from any frame.", log: log.join("\n") });
+    return;
+  }
+
+  figma.ui.postMessage({ type: "ready", results, log: log.join("\n") });
+}
+
+// ── Remove outlined originals by tracked ID ──────────────────────────────────
+
+function removeOriginals(frame: FrameNode, origIds: string[], log: string[]): void {
+  for (const id of origIds) {
+    for (const c of [...frame.children] as SceneNode[]) {
+      if (c.id === id) {
+        log.push(`Removing original: [${c.type}] "${c.name}" id=${id}`);
+        try { c.remove(); } catch (_) {}
+        break;
       }
     }
-
-    if (opts.flatten) {
-      flattenToOne(clone);
-      log.push(`Flattened to ${clone.children.length} child(ren)`);
-    }
-
-    const svgBytes = await clone.exportAsync({ format: "SVG" });
-    const svgString = new TextDecoder().decode(svgBytes);
-    log.push(`Exported SVG: ${svgString.length} chars`);
-
-    if (opts.debugSvg) {
-      figma.ui.postMessage({ type: "debug-svg", svg: svgString });
-    }
-
-    const result = optimize(svgString, {
-      plugins: [{ name: "preset-default", params: { overrides: {
-        cleanupNumericValues: { floatPrecision: opts.precision },
-        convertPathData:      { floatPrecision: opts.precision },
-      }}}],
-    });
-
-    const { d: optimizedPath, fillRule } = extractPathData(result.data);
-    const fallback = extractPathData(svgString);
-    const pathData = optimizedPath || fallback.d;
-    const finalFillRule = optimizedPath ? fillRule : fallback.fillRule;
-
-    const subPathCount = pathData ? pathData.split(/(?=[Mm])/).filter(Boolean).length : 0;
-    log.push(`Paths: ${subPathCount} sub-path(s), fill-rule: ${finalFillRule}`);
-
-    if (!pathData) throw new Error(`No path data found.\n\nRaw SVG:\n${svgString.slice(0, 600)}`);
-
-    figma.ui.postMessage({ type: "ready", pathData, fillRule: finalFillRule, log: log.join("\n") });
-
-  } catch (err) {
-    figma.ui.postMessage({
-      type: "error",
-      message: err instanceof Error ? err.message : String(err),
-      log: log.join("\n"),
-    });
-  } finally {
-    clone?.remove();
   }
 }
 

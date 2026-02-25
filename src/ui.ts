@@ -103,6 +103,28 @@ copyBtn.addEventListener("click", () => {
   }
 });
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function toKebabCase(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function deduplicateKeys(names: string[]): string[] {
+  const seen = new Map<string, number>();
+  return names.map((n) => {
+    const key = toKebabCase(n);
+    const count = seen.get(key) ?? 0;
+    seen.set(key, count + 1);
+    return count === 0 ? key : `${key}-${count + 1}`;
+  });
+}
+
+function formatRecord(results: { name: string; pathData: string }[]): string {
+  const keys = deduplicateKeys(results.map((r) => r.name));
+  const lines = results.map((r, i) => `    '${keys[i]}':\n        '${r.pathData}'`);
+  return `{\n${lines.join(",\n")},\n}`;
+}
+
 // ── Messages from sandbox ─────────────────────────────────────────────────────
 window.onmessage = (event: MessageEvent) => {
   const msg = event.data?.pluginMessage;
@@ -112,16 +134,28 @@ window.onmessage = (event: MessageEvent) => {
     flattenIconBtn.disabled = false;
     extractBtn.disabled     = false;
     statusEl.className      = "success";
-    statusEl.textContent    = `✓ "${msg.name}" flattened — groups removed, strokes outlined, shapes merged.`;
+    const count = msg.count as number || 1;
+    if (count === 1) {
+      statusEl.textContent = `✓ "${msg.name}" flattened — groups removed, strokes outlined, shapes merged.`;
+    } else {
+      statusEl.textContent = `✓ ${count} frames flattened — groups removed, strokes outlined, shapes merged.`;
+    }
     if (msg.log) appendLog(msg.log as string);
 
   } else if (msg.type === "ready") {
-    output.value            = msg.pathData as string;
+    const results = msg.results as { name: string; pathData: string; fillRule: string }[];
     copyBtn.disabled        = false;
     extractBtn.disabled     = false;
     flattenIconBtn.disabled = false;
     statusEl.className      = "success";
-    statusEl.textContent    = `✓ Ready — fill-rule: ${msg.fillRule || "nonzero"}`;
+
+    if (results.length === 1) {
+      output.value         = results[0].pathData;
+      statusEl.textContent = `✓ Ready — fill-rule: ${results[0].fillRule || "nonzero"}`;
+    } else {
+      output.value         = formatRecord(results);
+      statusEl.textContent = `✓ ${results.length} frames extracted`;
+    }
     if (msg.log) appendLog(msg.log as string);
 
   } else if (msg.type === "debug-svg") {
