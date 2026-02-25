@@ -327,5 +327,6 @@ function extractPathData(svg: string): { d: string; fillRule: string } {
     const d = dRe.exec(m[0]);
     if (d && d[1].trim()) paths.push(d[1].trim());
   }
-  return { d: paths.join(" "), fillRule };
+  const joined = paths.map(p => p.replace(/^m/, "M")).join(" ");
+  return { d: joined, fillRule };
 }
