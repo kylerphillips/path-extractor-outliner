@@ -25,7 +25,9 @@ This plugin uses the **manifest import** method for local development:
    node build.mjs
    ```
 
-2. **Open Figma Desktop** and go to **Plugins** → **Development** → **Import plugin from manifest…**
+2. **Open Figma Desktop** and go to **Plugins & widgets** → **Import from manifest…**
+
+![Import from manifest](assets/import-manifest.png)
 
 3. **Browse** to the `manifest.json` file inside this project folder and select it.
 
