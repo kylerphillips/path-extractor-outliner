@@ -58,7 +58,28 @@ async function flattenIconInPlace(precision: number): Promise<void> {
     ungroupAll(frame);
     log.push(`Ungrouped: removed ${groupCount} group(s) → ${frame.children.length} children`);
 
-    outlineStrokesDeep(frame, true, false, log);
+    const origIds = outlineStrokesDeep(frame, true, false, log);
+
+    // Diagnostic: show all children after outlining
+    log.push(`Post-outline children (${frame.children.length}):`);
+    for (const c of [...frame.children] as SceneNode[]) {
+      const n = c as any;
+      const fc = Array.isArray(n.fills) ? n.fills.length : "?";
+      const sc = Array.isArray(n.strokes) ? n.strokes.length : "?";
+      log.push(`  [${c.type}] "${c.name}" id=${c.id} fills=${fc} strokes=${sc}`);
+    }
+
+    // Remove only the originals that outlineStroke() created siblings for
+    for (const id of origIds) {
+      for (const c of [...frame.children] as SceneNode[]) {
+        if (c.id === id) {
+          log.push(`Removing original: [${c.type}] "${c.name}" id=${id}`);
+          try { c.remove(); } catch (_) {}
+          break;
+        }
+      }
+    }
+    log.push(`After removal: ${frame.children.length} children`);
 
     flattenToOne(frame);
     log.push(`Flattened to ${frame.children.length} node(s)`);
@@ -98,7 +119,12 @@ async function runExtraction(opts: ExtractOptions): Promise<void> {
     log.push(`Ungrouped: removed ${groupCount} group(s) → ${clone.children.length} children`);
 
     if (opts.outlineStrokes) {
-      outlineStrokesDeep(clone, opts.strokeAlignCenter, opts.strokePreserveOriginal, log);
+      const origIds = outlineStrokesDeep(clone, opts.strokeAlignCenter, opts.strokePreserveOriginal, log);
+      for (const id of origIds) {
+        for (const c of [...clone.children] as SceneNode[]) {
+          if (c.id === id) { try { c.remove(); } catch (_) {} break; }
+        }
+      }
     }
 
     if (opts.flatten) {
@@ -191,17 +217,19 @@ function findFirstGroup(node: BaseNode): GroupNode | null {
 }
 
 // ── Outline strokes ──────────────────────────────────────────────────────────
-// For each node with strokes: call outlineStroke() to create a filled sibling,
-// then clear strokes from the original. Never calls remove() — flattenToOne()
-// merges everything afterward.
+// For each node with strokes: call outlineStroke() to create a filled sibling.
+// Returns an array of original-node IDs that were successfully outlined so
+// the caller can remove them before flattening.
 
-function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, preserveOrig: boolean, log: string[]): void {
+function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, preserveOrig: boolean, log: string[]): string[] {
   const children = [...container.children] as SceneNode[];
+  const outlinedOrigIds: string[] = [];
   log.push(`Outline: ${children.length} children to process`);
 
   for (const child of children) {
     if ("children" in child) {
-      outlineStrokesDeep(child as ChildrenMixin, alignCenter, preserveOrig, log);
+      const nested = outlineStrokesDeep(child as ChildrenMixin, alignCenter, preserveOrig, log);
+      outlinedOrigIds.push(...nested);
     }
 
     const node = child as any;
@@ -213,7 +241,6 @@ function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, pres
       continue;
     }
 
-    // strokes can be an array or figma.mixed (Symbol) for mixed properties
     const strokes = node.strokes;
     if (Array.isArray(strokes) && strokes.length === 0) {
       log.push(`  [${type}] "${name}" — 0 strokes, skip`);
@@ -221,10 +248,8 @@ function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, pres
     }
 
     const strokeInfo = Array.isArray(strokes) ? `${strokes.length} stroke(s)` : "mixed";
-    log.push(`  [${type}] "${name}" — ${strokeInfo}`);
+    log.push(`  [${type}] "${name}" — ${strokeInfo} (id=${child.id})`);
 
-    // Try setting CENTER alignment (separate from outline so a failure here
-    // doesn't prevent the outline call)
     if (alignCenter) {
       try { node.strokeAlign = "CENTER"; } catch (e) {
         log.push(`    align→CENTER failed: ${e}`);
@@ -234,14 +259,14 @@ function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, pres
     try {
       const outlined = node.outlineStroke();
       if (outlined) {
-        log.push(`    ✓ outlined → [${outlined.type}] "${outlined.name}"`);
+        // outlineStroke() places the new node at the page level — move it into the container
+        (container as ChildrenMixin & BaseNode).appendChild(outlined);
+
+        const oFills = Array.isArray((outlined as any).fills) ? (outlined as any).fills.length : "?";
+        log.push(`    ✓ outlined → [${outlined.type}] "${outlined.name}" id=${outlined.id} fills=${oFills}`);
+
         if (!preserveOrig) {
-          // Remove the original node — the outlined sibling has the stroke
-          // geometry as a fill. Keeping the original (even emptied) can cause
-          // figma.flatten() to inherit its empty fills, producing an invisible
-          // result. If outlineStroke() already consumed the node, remove()
-          // fails silently.
-          try { node.remove(); } catch (_) {}
+          outlinedOrigIds.push(child.id);
         }
       } else {
         log.push(`    ✗ outlineStroke() returned null`);
@@ -250,6 +275,8 @@ function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, pres
       log.push(`    ✗ outlineStroke() threw: ${e}`);
     }
   }
+
+  return outlinedOrigIds;
 }
 
 // ── Flatten all children into a single vector ─────────────────────────────────
@@ -257,10 +284,19 @@ function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, pres
 function flattenToOne(frame: FrameNode): void {
   const all = [...frame.children] as SceneNode[];
   if (all.length === 0) return;
+  let result: VectorNode | null = null;
   if (all.length > 1) {
-    figma.flatten(all, frame);
+    result = figma.flatten(all, frame);
   } else if (all[0].type !== "VECTOR") {
-    figma.flatten(all, frame);
+    result = figma.flatten(all, frame);
+  } else {
+    result = all[0] as VectorNode;
+  }
+  if (result) {
+    const fills = result.fills as ReadonlyArray<Paint>;
+    if (!fills || fills.length === 0) {
+      result.fills = [{ type: "SOLID", color: { r: 0, g: 0, b: 0 } }];
+    }
   }
 }
 
