@@ -236,12 +236,12 @@ function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, pres
       if (outlined) {
         log.push(`    ✓ outlined → [${outlined.type}] "${outlined.name}"`);
         if (!preserveOrig) {
-          // Clear both strokes and fills from the original — the outlined
-          // sibling captures the stroke boundary. Keeping the original fill
-          // (often white for icon interiors) breaks flatten by creating
-          // conflicting paths that neither NONZERO nor EVENODD renders right.
-          try { node.strokes = []; } catch (_) {}
-          try { node.fills = []; } catch (_) {}
+          // Remove the original node — the outlined sibling has the stroke
+          // geometry as a fill. Keeping the original (even emptied) can cause
+          // figma.flatten() to inherit its empty fills, producing an invisible
+          // result. If outlineStroke() already consumed the node, remove()
+          // fails silently.
+          try { node.remove(); } catch (_) {}
         }
       } else {
         log.push(`    ✗ outlineStroke() returned null`);
