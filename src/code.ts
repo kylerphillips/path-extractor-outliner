@@ -41,7 +41,6 @@ function defaultOptions(): ExtractOptions {
 }
 
 // ── FLATTEN ICON — mutates original frame ────────────────────────────────────
-// Destructive: ungroups → outlines strokes → flattens to one vector → evenodd
 
 async function flattenIconInPlace(precision: number): Promise<void> {
   const selection = figma.currentPage.selection;
@@ -60,9 +59,7 @@ async function flattenIconInPlace(precision: number): Promise<void> {
     ungroupAll(frame);
     log.push(`Ungrouped: removed ${groupCount} group(s) → ${frame.children.length} children`);
 
-    const nodesBefore = countNodes(frame);
-    outlineStrokesDeep(frame, true, false);
-    log.push(`Outlined strokes: ${nodesBefore} → ${countNodes(frame)} nodes`);
+    outlineStrokesDeep(frame, true, false, log);
 
     flattenToOne(frame);
     log.push(`Flattened to ${frame.children.length} node(s)`);
@@ -105,9 +102,7 @@ async function runExtraction(opts: ExtractOptions): Promise<void> {
     log.push(`Ungrouped: removed ${groupCount} group(s) → ${clone.children.length} children`);
 
     if (opts.outlineStrokes) {
-      const before = countNodes(clone);
-      outlineStrokesDeep(clone, opts.strokeAlignCenter, opts.strokePreserveOriginal);
-      log.push(`Outlined strokes: ${before} → ${countNodes(clone)} nodes`);
+      outlineStrokesDeep(clone, opts.strokeAlignCenter, opts.strokePreserveOriginal, log);
     }
 
     if (opts.flatten) {
@@ -178,8 +173,6 @@ function countGroups(node: BaseNode): number {
 }
 
 // ── Ungroup all groups recursively ────────────────────────────────────────────
-// Finds the deepest group first (depth-first), moves its children to its
-// parent, removes the empty group, and repeats until no groups remain.
 
 function ungroupAll(frame: FrameNode): void {
   let safety = 500;
@@ -205,31 +198,58 @@ function findFirstGroup(node: BaseNode): GroupNode | null {
   return null;
 }
 
-// ── Outline strokes (deep) ────────────────────────────────────────────────────
-// outlineStroke() can internally consume/replace stroke-only nodes, so we must
-// check the node still exists before touching it after the call.
+// ── Outline strokes ──────────────────────────────────────────────────────────
+// For each node with strokes: call outlineStroke() to create a filled sibling,
+// then clear strokes from the original. Logs every step so failures are visible
+// in the debug panel. Retries without strokeAlign change if the first attempt
+// fails. Never calls remove() — flattenToOne() merges everything afterward.
 
-function nodeExists(node: SceneNode): boolean {
-  try { return node.parent !== null && node.parent !== undefined; } catch { return false; }
-}
+function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, preserveOrig: boolean, log: string[]): void {
+  const children = [...container.children] as SceneNode[];
+  log.push(`Outline pass: ${children.length} children to process`);
 
-function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, preserveOrig: boolean): void {
-  for (const child of [...container.children] as SceneNode[]) {
+  for (const child of children) {
     if ("children" in child) {
-      try { outlineStrokesDeep(child as ChildrenMixin, alignCenter, preserveOrig); } catch (_) {}
+      outlineStrokesDeep(child as ChildrenMixin, alignCenter, preserveOrig, log);
     }
+
     if (!("outlineStroke" in child)) continue;
-    try {
-      const node = child as SceneNode & GeometryMixin & { strokeAlign: StrokeAlign };
-      if (!node.strokes || node.strokes.length === 0) continue;
-      const hasFills = Array.isArray(node.fills) && node.fills.length > 0;
-      if (alignCenter) { try { node.strokeAlign = "CENTER"; } catch (_) {} }
-      node.outlineStroke();
-      if (!preserveOrig && nodeExists(node)) {
-        if (hasFills) { try { node.strokes = []; } catch (_) {} }
-        else { try { node.remove(); } catch (_) {} }
+    const node = child as SceneNode & GeometryMixin & { strokeAlign: StrokeAlign };
+    if (!node.strokes || node.strokes.length === 0) continue;
+
+    const strokeCount = node.strokes.length;
+    const hasFills = Array.isArray(node.fills) && node.fills.length > 0;
+    log.push(`  "${node.name}" type=${node.type} strokes=${strokeCount} fills=${hasFills}`);
+
+    let outlined: VectorNode | null = null;
+
+    // Attempt 1: with strokeAlign = CENTER (avoids geometry bleed)
+    if (alignCenter) {
+      try {
+        node.strokeAlign = "CENTER";
+        outlined = node.outlineStroke();
+        if (outlined) log.push(`    → outlined OK (align=CENTER)`);
+      } catch (e) {
+        log.push(`    → align=CENTER failed: ${e}`);
+        outlined = null;
       }
-    } catch (_) {}
+    }
+
+    // Attempt 2: without changing strokeAlign
+    if (!outlined) {
+      try {
+        outlined = node.outlineStroke();
+        if (outlined) log.push(`    → outlined OK (original align)`);
+        else log.push(`    → outlineStroke returned null`);
+      } catch (e) {
+        log.push(`    → outlineStroke failed: ${e}`);
+      }
+    }
+
+    // Clear strokes from original so flatten doesn't double-render
+    if (outlined && !preserveOrig) {
+      try { node.strokes = []; } catch (_) {}
+    }
   }
 }
 
@@ -246,8 +266,6 @@ function flattenToOne(frame: FrameNode): void {
 }
 
 // ── Set fill-rule to evenodd ──────────────────────────────────────────────────
-// Uses evenodd winding so compound paths render correctly without needing
-// to reverse any sub-path directions (which would destroy curve data).
 
 function setEvenOddWinding(frame: FrameNode): void {
   for (const child of frame.children) {
