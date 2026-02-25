@@ -163,6 +163,16 @@ window.onmessage = (event: MessageEvent) => {
     debugSvgPanel.style.display = "block";
     debugSvgPanel.open          = true;
 
+  } else if (msg.type === "selection-count") {
+    const count = msg.count as number;
+    if (count <= 1) {
+      flattenIconBtn.textContent = "⬡ Flatten Icon";
+      extractBtn.textContent     = "Extract Path Data";
+    } else {
+      flattenIconBtn.textContent = `⬡ Flatten ${count} Icon(s)`;
+      extractBtn.textContent     = `Extract ${count} Paths`;
+    }
+
   } else if (msg.type === "error") {
     extractBtn.disabled     = false;
     flattenIconBtn.disabled = false;

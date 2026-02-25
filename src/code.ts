@@ -27,6 +27,14 @@ interface ExtractOptions {
 
 figma.showUI(__html__, { width: 340, height: 520, themeColors: true });
 
+function broadcastSelectionCount() {
+  const count = figma.currentPage.selection.filter(n => n.type === "FRAME").length;
+  figma.ui.postMessage({ type: "selection-count", count });
+}
+
+broadcastSelectionCount();
+figma.on("selectionchange", broadcastSelectionCount);
+
 figma.ui.onmessage = async (msg: { type: string; options?: ExtractOptions }) => {
   if (msg.type === "flatten-icon") {
     await flattenAllInPlace(msg.options?.precision ?? 3);
