@@ -41,6 +41,27 @@ This plugin uses the **manifest import** method for local development:
 
 <video src="assets/flatten-demo.mp4" controls width="600"></video>
 
+## Multi-Frame Export
+
+Select multiple frames and click **Extract Path Data** to generate a ready-to-use object with each frame's path data keyed by its name (converted to kebab-case). Duplicate names are automatically suffixed with `-2`, `-3`, etc.
+
+![Multi-frame extract](assets/multi-frame-extract.png)
+
+The output looks like:
+
+```typescript
+{
+    'date':
+        'M1.5 3.5h13v11h-13z...',
+    'date-calculate':
+        'M5 7h2v1.5H5z...',
+    'number':
+        'M0 0h16v16H0z...',
+}
+```
+
+Both **Flatten Icon** and **Extract Path Data** support multi-selection — the buttons update to show how many frames are selected.
+
 ## Usage
 
 1. Select one or more **Frames** on the canvas.
