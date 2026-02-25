@@ -132,26 +132,17 @@ async function runExtractionAll(opts: ExtractOptions): Promise<void> {
         figma.ui.postMessage({ type: "debug-svg", svg: svgString });
       }
 
-      const optimized = optimize(svgString, {
-        plugins: [{ name: "preset-default", params: { overrides: {
-          cleanupNumericValues: { floatPrecision: opts.precision },
-          convertPathData:      { floatPrecision: opts.precision },
-        }}}],
-      });
-
-      const { d: optimizedPath, fillRule } = extractPathData(optimized.data);
-      const fallback = extractPathData(svgString);
-      const pathData = optimizedPath || fallback.d;
-      const finalFillRule = optimizedPath ? fillRule : fallback.fillRule;
-
-      const subPathCount = pathData ? pathData.split(/(?=[Mm])/).filter(Boolean).length : 0;
-      log.push(`Paths: ${subPathCount} sub-path(s), fill-rule: ${finalFillRule}`);
-
-      if (!pathData) {
+      const { d: rawPath, fillRule } = extractPathData(svgString);
+      if (!rawPath) {
         log.push(`✗ No path data for "${frame.name}". Raw SVG: ${svgString.slice(0, 300)}`);
-      } else {
-        results.push({ name: frame.name, pathData, fillRule: finalFillRule });
+        continue;
       }
+
+      const pathData = optimizePath(rawPath, fillRule, opts.precision);
+      const subPathCount = pathData.split(/(?=[Mm])/).filter(Boolean).length;
+      log.push(`Paths: ${subPathCount} sub-path(s), fill-rule: ${fillRule}`);
+
+      results.push({ name: frame.name, pathData, fillRule });
     } catch (err) {
       log.push(`✗ Error on "${frame.name}": ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -320,7 +311,6 @@ function extractPathData(svg: string): { d: string; fillRule: string } {
   const paths: string[] = [];
   let fillRule = "nonzero";
 
-  // Select only <path> elements outside <defs> and <clipPath>
   $("path").not("defs path, clipPath path").each((_, el) => {
     const fr = $(el).attr("fill-rule");
     if (fr) fillRule = fr;
@@ -328,13 +318,20 @@ function extractPathData(svg: string): { d: string; fillRule: string } {
     if (d) paths.push(d);
   });
 
-  // When joining separate <path> elements, each starts fresh at (0,0).
-  // A leading lowercase m is relative to origin — equivalent to absolute M.
-  // But after M, implicit coords become absolute L instead of relative l,
-  // so we must insert an explicit 'l' after the moveto coordinates.
-  const movetoRe = /^m([-+]?(?:\d+\.?\d*|\.\d+)[,\s]*[-+]?(?:\d+\.?\d*|\.\d+))(?=[,\s]*[-+.\d])/;
-  const joined = paths
-    .map(p => p.replace(movetoRe, "M$1l").replace(/^m/, "M"))
-    .join(" ");
-  return { d: joined, fillRule };
+  return { d: paths.join(" "), fillRule };
+}
+
+function optimizePath(d: string, fillRule: string, precision: number): string {
+  const frAttr = fillRule !== "nonzero" ? ` fill-rule="${fillRule}"` : "";
+  const wrapper = `<svg xmlns="http://www.w3.org/2000/svg"><path d="${d}"${frAttr}/></svg>`;
+
+  const result = optimize(wrapper, {
+    plugins: [{ name: "preset-default", params: { overrides: {
+      cleanupNumericValues: { floatPrecision: precision },
+      convertPathData:      { floatPrecision: precision },
+    }}}],
+  });
+
+  const { d: optimized } = extractPathData(result.data);
+  return optimized || d;
 }
