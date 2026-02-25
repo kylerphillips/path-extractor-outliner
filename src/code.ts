@@ -235,7 +235,9 @@ function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, pres
   log.push(`Outline: ${children.length} children to process`);
 
   for (const child of children) {
-    if ("children" in child) {
+    // Recurse into frames but NOT boolean operations — modifying children
+    // of a boolean corrupts its result; let figma.flatten() resolve it.
+    if ("children" in child && child.type !== "BOOLEAN_OPERATION") {
       const nested = outlineStrokesDeep(child as ChildrenMixin, alignCenter, preserveOrig, log);
       outlinedOrigIds.push(...nested);
     }
