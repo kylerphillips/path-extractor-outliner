@@ -1,6 +1,6 @@
-# Path Extractor v5
+# Path Extractor
 
-![Path Extractor v5](assets/screenshot.png)
+![Path Extractor](assets/screenshot.png)
 
 A Figma plugin that selects a frame, ungroups all nested layers, outlines strokes into fills, flattens everything into a single unified vector, and extracts the raw SVG `d` path string — ready to paste into code or a motion tool.
 
@@ -31,7 +31,7 @@ This plugin uses the **manifest import** method for local development:
 
 3. **Browse** to the `manifest.json` file inside this project folder and select it.
 
-4. The plugin will appear under **Plugins** → **Development** → **Path Extractor v5**.
+4. The plugin will appear under **Plugins** → **Development** → **Path Extractor**.
 
 5. To run it, select a frame on your canvas, then launch the plugin from the menu.
 
