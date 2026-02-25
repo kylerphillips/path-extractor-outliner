@@ -315,13 +315,15 @@ function flattenToOne(frame: FrameNode): void {
 // ── Path extraction ───────────────────────────────────────────────────────────
 
 function extractPathData(svg: string): { d: string; fillRule: string } {
+  // Strip <defs> and <clipPath> blocks so clip rectangles aren't extracted as paths
+  const cleaned = svg.replace(/<defs[\s\S]*?<\/defs>/g, "").replace(/<clipPath[\s\S]*?<\/clipPath>/g, "");
   const paths: string[] = [];
   let fillRule = "nonzero";
   const pathRe = /<path\b[^>]*\/?>/g;
   const dRe    = /\bd="([^"]*)"/;
   const frRe   = /\bfill-rule="([^"]*)"/;
   let m: RegExpExecArray | null;
-  while ((m = pathRe.exec(svg)) !== null) {
+  while ((m = pathRe.exec(cleaned)) !== null) {
     const fr = frRe.exec(m[0]);
     if (fr) fillRule = fr[1];
     const d = dRe.exec(m[0]);
