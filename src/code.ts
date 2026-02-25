@@ -236,7 +236,12 @@ function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, pres
       if (outlined) {
         log.push(`    ✓ outlined → [${outlined.type}] "${outlined.name}"`);
         if (!preserveOrig) {
+          // Clear both strokes and fills from the original — the outlined
+          // sibling captures the stroke boundary. Keeping the original fill
+          // (often white for icon interiors) breaks flatten by creating
+          // conflicting paths that neither NONZERO nor EVENODD renders right.
           try { node.strokes = []; } catch (_) {}
+          try { node.fills = []; } catch (_) {}
         }
       } else {
         log.push(`    ✗ outlineStroke() returned null`);
