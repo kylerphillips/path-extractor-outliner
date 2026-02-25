@@ -183,7 +183,8 @@ function ungroupAll(frame: FrameNode): void {
     for (const kid of [...group.children] as SceneNode[]) {
       parent.appendChild(kid);
     }
-    group.remove();
+    // Figma auto-dissolves empty groups, so it may already be gone
+    try { group.remove(); } catch (_) {}
   }
 }
 
