@@ -8,7 +8,6 @@ const optOutlineStrokes     = document.getElementById("opt-outline-strokes")    
 const optStrokeAlignCenter  = document.getElementById("opt-stroke-align-center")      as HTMLInputElement;
 const optStrokePreserveOrig = document.getElementById("opt-stroke-preserve-original") as HTMLInputElement;
 const optFlatten            = document.getElementById("opt-flatten")                   as HTMLInputElement;
-const optFixWinding         = document.getElementById("opt-fix-winding")               as HTMLInputElement;
 const optPrecision          = document.getElementById("opt-precision")                 as HTMLInputElement;
 const optDebugSvg           = document.getElementById("opt-debug-svg")                as HTMLInputElement;
 const strokeSubOpts         = document.getElementById("stroke-sub-opts")!;
@@ -81,7 +80,6 @@ extractBtn.addEventListener("click", () => {
         strokeAlignCenter:      optStrokeAlignCenter.checked,
         strokePreserveOriginal: optStrokePreserveOrig.checked,
         flatten:                optFlatten.checked,
-        fixWinding:             optFixWinding.checked,
         precision:              getPrecision(),
         debugSvg:               optDebugSvg.checked,
       },

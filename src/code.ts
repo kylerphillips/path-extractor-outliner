@@ -21,7 +21,6 @@ interface ExtractOptions {
   strokeAlignCenter: boolean;
   strokePreserveOriginal: boolean;
   flatten: boolean;
-  fixWinding: boolean;
   precision: number;
   debugSvg: boolean;
 }
@@ -37,7 +36,7 @@ figma.ui.onmessage = async (msg: { type: string; options?: ExtractOptions }) => 
 };
 
 function defaultOptions(): ExtractOptions {
-  return { outlineStrokes: true, strokeAlignCenter: true, strokePreserveOriginal: false, flatten: true, fixWinding: true, precision: 3, debugSvg: false };
+  return { outlineStrokes: true, strokeAlignCenter: true, strokePreserveOriginal: false, flatten: true, precision: 3, debugSvg: false };
 }
 
 // ── FLATTEN ICON — mutates original frame ────────────────────────────────────
@@ -63,9 +62,6 @@ async function flattenIconInPlace(precision: number): Promise<void> {
 
     flattenToOne(frame);
     log.push(`Flattened to ${frame.children.length} node(s)`);
-
-    setEvenOddWinding(frame);
-    log.push(`Set fill-rule to evenodd`);
 
     figma.ui.postMessage({ type: "flatten-done", name: frame.name, log: log.join("\n") });
   } catch (err) {
@@ -108,11 +104,6 @@ async function runExtraction(opts: ExtractOptions): Promise<void> {
     if (opts.flatten) {
       flattenToOne(clone);
       log.push(`Flattened to ${clone.children.length} child(ren)`);
-    }
-
-    if (opts.fixWinding) {
-      setEvenOddWinding(clone);
-      log.push(`Set fill-rule to evenodd`);
     }
 
     const svgBytes = await clone.exportAsync({ format: "SVG" });
@@ -201,55 +192,57 @@ function findFirstGroup(node: BaseNode): GroupNode | null {
 
 // ── Outline strokes ──────────────────────────────────────────────────────────
 // For each node with strokes: call outlineStroke() to create a filled sibling,
-// then clear strokes from the original. Logs every step so failures are visible
-// in the debug panel. Retries without strokeAlign change if the first attempt
-// fails. Never calls remove() — flattenToOne() merges everything afterward.
+// then clear strokes from the original. Never calls remove() — flattenToOne()
+// merges everything afterward.
 
 function outlineStrokesDeep(container: ChildrenMixin, alignCenter: boolean, preserveOrig: boolean, log: string[]): void {
   const children = [...container.children] as SceneNode[];
-  log.push(`Outline pass: ${children.length} children to process`);
+  log.push(`Outline: ${children.length} children to process`);
 
   for (const child of children) {
     if ("children" in child) {
       outlineStrokesDeep(child as ChildrenMixin, alignCenter, preserveOrig, log);
     }
 
-    if (!("outlineStroke" in child)) continue;
-    const node = child as SceneNode & GeometryMixin & { strokeAlign: StrokeAlign };
-    if (!node.strokes || node.strokes.length === 0) continue;
+    const node = child as any;
+    const name: string = node.name || "?";
+    const type: string = child.type;
 
-    const strokeCount = node.strokes.length;
-    const hasFills = Array.isArray(node.fills) && node.fills.length > 0;
-    log.push(`  "${node.name}" type=${node.type} strokes=${strokeCount} fills=${hasFills}`);
+    if (typeof node.outlineStroke !== "function") {
+      log.push(`  [${type}] "${name}" — no outlineStroke, skip`);
+      continue;
+    }
 
-    let outlined: VectorNode | null = null;
+    // strokes can be an array or figma.mixed (Symbol) for mixed properties
+    const strokes = node.strokes;
+    if (Array.isArray(strokes) && strokes.length === 0) {
+      log.push(`  [${type}] "${name}" — 0 strokes, skip`);
+      continue;
+    }
 
-    // Attempt 1: with strokeAlign = CENTER (avoids geometry bleed)
+    const strokeInfo = Array.isArray(strokes) ? `${strokes.length} stroke(s)` : "mixed";
+    log.push(`  [${type}] "${name}" — ${strokeInfo}`);
+
+    // Try setting CENTER alignment (separate from outline so a failure here
+    // doesn't prevent the outline call)
     if (alignCenter) {
-      try {
-        node.strokeAlign = "CENTER";
-        outlined = node.outlineStroke();
-        if (outlined) log.push(`    → outlined OK (align=CENTER)`);
-      } catch (e) {
-        log.push(`    → align=CENTER failed: ${e}`);
-        outlined = null;
+      try { node.strokeAlign = "CENTER"; } catch (e) {
+        log.push(`    align→CENTER failed: ${e}`);
       }
     }
 
-    // Attempt 2: without changing strokeAlign
-    if (!outlined) {
-      try {
-        outlined = node.outlineStroke();
-        if (outlined) log.push(`    → outlined OK (original align)`);
-        else log.push(`    → outlineStroke returned null`);
-      } catch (e) {
-        log.push(`    → outlineStroke failed: ${e}`);
+    try {
+      const outlined = node.outlineStroke();
+      if (outlined) {
+        log.push(`    ✓ outlined → [${outlined.type}] "${outlined.name}"`);
+        if (!preserveOrig) {
+          try { node.strokes = []; } catch (_) {}
+        }
+      } else {
+        log.push(`    ✗ outlineStroke() returned null`);
       }
-    }
-
-    // Clear strokes from original so flatten doesn't double-render
-    if (outlined && !preserveOrig) {
-      try { node.strokes = []; } catch (_) {}
+    } catch (e) {
+      log.push(`    ✗ outlineStroke() threw: ${e}`);
     }
   }
 }
@@ -263,21 +256,6 @@ function flattenToOne(frame: FrameNode): void {
     figma.flatten(all, frame);
   } else if (all[0].type !== "VECTOR") {
     figma.flatten(all, frame);
-  }
-}
-
-// ── Set fill-rule to evenodd ──────────────────────────────────────────────────
-
-function setEvenOddWinding(frame: FrameNode): void {
-  for (const child of frame.children) {
-    if (child.type !== "VECTOR") continue;
-    const vec = child as VectorNode;
-    try {
-      vec.vectorPaths = vec.vectorPaths.map(p => ({
-        data: p.data,
-        windingRule: "EVENODD" as WindingRule,
-      }));
-    } catch (_) {}
   }
 }
 
